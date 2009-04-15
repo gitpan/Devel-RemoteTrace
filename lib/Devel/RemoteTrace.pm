@@ -4,7 +4,11 @@ package Devel::RemoteTrace;
 use warnings;
 use strict;
 
-our $VERSION = '0.1';
+our $VERSION = '0.2';
+
+sub import {
+    $DB::trace = 1 if grep { $_ eq ':trace' } @_;
+}
 
 package DB;
 
@@ -12,16 +16,9 @@ our $sub;
 our @args;
 our $trace;
 
-use Data::Dumper;
 use Socket;
 my ($socket, $sin);
 my $depth;
-
-
-sub import {
-    dblog("Debug::RemoteTrace::import() called\n");
-
-}
 
 BEGIN {
     # Force use of debuging:
@@ -100,49 +97,15 @@ sub sub {
     return (wantarray) ? @ret : defined(wantarray) ? $ret : undef;
 }
 
-sub trace {
+sub postponed {
+    return unless $trace;
 
-    my $trace = '';
-    my $i = 2;
-
-    while (1) {
-        my  @caller = caller($i);
-        my @trace_args = @args;
-        last unless scalar @caller;
-
-        my  ($package, $filename, $line, $subroutine, $hasargs, $wantarray,
-            $evaltext, $is_require, $hints, $bitmask) = @caller;
-
-#        next if $package eq 'DB';
-
-        my $string = $subroutine eq '(eval)'
-                    ?   $package . '::' . $subroutine . qq| [$i]|
-                        . (defined $evaltext ? qq[\n\t$evaltext] : '')
-                    :   $subroutine . qq| [$i]|;
-        $string =~ s/\n;$/;/gs;
-
-        $string .= qq[\n\t];
-
-        $string .= q[require|use - ] if $is_require;
-        $string .= defined $wantarray
-                        ? $wantarray ? 'list - ' : 'scalar - '
-                        : 'void - ';
-        $string .= $hasargs ? 'new stash' : 'no new stash';
-        $string .=  qq[\n\t] . $filename . ' line ' . $line . qq[\n];
-
-        local $Data::Dumper::Varname    = 'ARGS';
-        local $Data::Dumper::Indent     = 1;
-
-        for my $line ( split $/, Data::Dumper->Dump( \@trace_args ) ) {
-            $string .=  "\t$line\n";
-        }
-
-        $trace = $string . $trace;
-
-        $i++;
+    my $arg = shift;
+    if (ref \$arg eq 'GLOB') {
+        dblog( "[$$] Loaded file ${ *$arg{SCALAR} }\n" );
+    } else {
+        dblog( "[$$] Compiled function $arg\n" );
     }
-
-    return $trace;
 }
 
 
@@ -156,7 +119,11 @@ Devel::RemoteTrace - Attachable call trace of perl scripts
 
 =head1 SYNOPSIS
 
-  $ perl -d:RemotePTRace your-script
+  $ perl -d:RemoteTrace your-script
+
+or
+
+  $ perl -d:RemoteTrace=:trace your-script
 
 or
 
@@ -170,6 +137,10 @@ localhost:9999.
 
 By using UDP the debug process doesn't have to care aboput if any body is
 listening. It just sends the trace messages.
+
+Tracing is enabled and disabled bysending the traced process ans SIGUSR2. If 
+the module is called with ':trace' as argument tracing is enabled from the
+beginning
 
 =head1 ENVIRONMENT
 
